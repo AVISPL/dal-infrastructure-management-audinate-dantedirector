@@ -17,7 +17,7 @@ public enum SystemInformation {
 	CONNECTIVITY("Connectivity", "connectivity"),
 	LATENCY("Latency", "latency"),
 	SUBSCRIPTION("Subscriptions", "subscriptions"),
-	;
+			;
 	private final String name;
 	private final String value;
 

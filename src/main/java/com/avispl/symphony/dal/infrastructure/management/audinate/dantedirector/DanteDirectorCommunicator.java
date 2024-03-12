@@ -9,6 +9,7 @@ import java.net.ConnectException;
 import java.net.Socket;
 import java.net.SocketTimeoutException;
 import java.net.UnknownHostException;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Date;
@@ -16,6 +17,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.TimeZone;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 
@@ -23,7 +28,9 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.util.CollectionUtils;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import javax.security.auth.login.FailedLoginException;
 
 import com.avispl.symphony.api.dal.control.Controller;
@@ -35,14 +42,155 @@ import com.avispl.symphony.api.dal.dto.monitor.aggregator.AggregatedDevice;
 import com.avispl.symphony.api.dal.error.ResourceNotReachableException;
 import com.avispl.symphony.api.dal.monitor.Monitorable;
 import com.avispl.symphony.api.dal.monitor.aggregator.Aggregator;
+import com.avispl.symphony.dal.aggregator.parser.AggregatedDeviceProcessor;
+import com.avispl.symphony.dal.aggregator.parser.PropertiesMapping;
+import com.avispl.symphony.dal.aggregator.parser.PropertiesMappingParser;
 import com.avispl.symphony.dal.communicator.RestCommunicator;
+import com.avispl.symphony.dal.infrastructure.management.audinate.dantedirector.common.AggregatedControllableProperty;
+import com.avispl.symphony.dal.infrastructure.management.audinate.dantedirector.common.AggregatedInformation;
 import com.avispl.symphony.dal.infrastructure.management.audinate.dantedirector.common.DanteDirectorConstant;
 import com.avispl.symphony.dal.infrastructure.management.audinate.dantedirector.common.DanteDirectorQuery;
 import com.avispl.symphony.dal.infrastructure.management.audinate.dantedirector.common.SystemInformation;
+import com.avispl.symphony.dal.infrastructure.management.audinate.dantedirector.dto.ChannelDTO;
 import com.avispl.symphony.dal.util.StringUtils;
 
 
 public class DanteDirectorCommunicator extends RestCommunicator implements Aggregator, Monitorable, Controller {
+	/**
+	 * Process that is running constantly and triggers collecting data from Dante Director SE API endpoints, based on the given timeouts and thresholds.
+	 *
+	 * @author Harry
+	 * @since 1.0.0
+	 */
+	class DanteDirectorDataLoader implements Runnable {
+		private volatile boolean inProgress;
+		private volatile boolean flag = false;
+
+		public DanteDirectorDataLoader() {
+			inProgress = true;
+		}
+
+		@Override
+		public void run() {
+			loop:
+			while (inProgress) {
+				try {
+					TimeUnit.MILLISECONDS.sleep(500);
+				} catch (InterruptedException e) {
+					// Ignore for now
+				}
+
+				if (!inProgress) {
+					break loop;
+				}
+
+				// next line will determine whether Dante Director monitoring was paused
+				updateAggregatorStatus();
+				if (devicePaused) {
+					continue loop;
+				}
+				if (logger.isDebugEnabled()) {
+					logger.debug("Fetching other than aggregated device list");
+				}
+				long currentTimestamp = System.currentTimeMillis();
+				if (!flag && nextDevicesCollectionIterationTimestamp <= currentTimestamp) {
+					populateDeviceDetails();
+					flag = true;
+				}
+
+				while (nextDevicesCollectionIterationTimestamp > System.currentTimeMillis()) {
+					try {
+						TimeUnit.MILLISECONDS.sleep(1000);
+					} catch (InterruptedException e) {
+						//
+					}
+				}
+
+				if (!inProgress) {
+					break loop;
+				}
+				if (flag) {
+					nextDevicesCollectionIterationTimestamp = System.currentTimeMillis() + 30000;
+					flag = false;
+				}
+
+				if (logger.isDebugEnabled()) {
+					logger.debug("Finished collecting devices statistics cycle at " + new Date());
+				}
+			}
+			// Finished collecting
+		}
+
+		/**
+		 * Triggers main loop to stop
+		 */
+		public void stop() {
+			inProgress = false;
+		}
+	}
+
+	/**
+	 * Indicates whether a device is considered as paused.
+	 * True by default so if the system is rebooted and the actual value is lost -> the device won't start stats
+	 * collection unless the {@link DanteDirectorCommunicator#retrieveMultipleStatistics()} method is called which will change it
+	 * to a correct value
+	 */
+	private volatile boolean devicePaused = true;
+
+	/**
+	 * We don't want the statistics to be collected constantly, because if there's not a big list of devices -
+	 * new devices' statistics loop will be launched before the next monitoring iteration. To avoid that -
+	 * this variable stores a timestamp which validates it, so when the devices' statistics is done collecting, variable
+	 * is set to currentTime + 30s, at the same time, calling {@link #retrieveMultipleStatistics()} and updating the
+	 */
+	private long nextDevicesCollectionIterationTimestamp;
+
+	/**
+	 * This parameter holds timestamp of when we need to stop performing API calls
+	 * It used when device stop retrieving statistic. Updated each time of called #retrieveMultipleStatistics
+	 */
+	private volatile long validRetrieveStatisticsTimestamp;
+
+	/**
+	 * Aggregator inactivity timeout. If the {@link DanteDirectorCommunicator#retrieveMultipleStatistics()}  method is not
+	 * called during this period of time - device is considered to be paused, thus the Cloud API
+	 * is not supposed to be called
+	 */
+	private static final long retrieveStatisticsTimeOut = 3 * 60 * 1000;
+
+	/**
+	 * Update the status of the device.
+	 * The device is considered as paused if did not receive any retrieveMultipleStatistics()
+	 * calls during {@link DanteDirectorCommunicator}
+	 */
+	private synchronized void updateAggregatorStatus() {
+		devicePaused = validRetrieveStatisticsTimestamp < System.currentTimeMillis();
+	}
+
+	/**
+	 * Uptime time stamp to valid one
+	 */
+	private synchronized void updateValidRetrieveStatisticsTimestamp() {
+		validRetrieveStatisticsTimestamp = System.currentTimeMillis() + retrieveStatisticsTimeOut;
+		updateAggregatorStatus();
+	}
+
+	/**
+	 * A mapper for reading and writing JSON using Jackson library.
+	 * ObjectMapper provides functionality for converting between Java objects and JSON.
+	 * It can be used to serialize objects to JSON format, and deserialize JSON data to objects.
+	 */
+	ObjectMapper objectMapper = new ObjectMapper();
+
+	/**
+	 * Executor that runs all the async operations, that is posting and
+	 */
+	private ExecutorService executorService;
+
+	/**
+	 * A private field that represents an instance of the DanteDirectorLoader class, which is responsible for loading device data for Dante Director
+	 */
+	private DanteDirectorDataLoader deviceDataLoader;
 
 	/**
 	 * A private final ReentrantLock instance used to provide exclusive access to a shared resource
@@ -57,9 +205,24 @@ public class DanteDirectorCommunicator extends RestCommunicator implements Aggre
 	private ExtendedStatistics localExtendedStatistics;
 
 	/**
+	 * An instance of the AggregatedDeviceProcessor class used to process and aggregate device-related data.
+	 */
+	private AggregatedDeviceProcessor aggregatedDeviceProcessor;
+
+	/**
 	 * A JSON node containing the response from an aggregator.
 	 */
 	private List<JsonNode> domainList = Collections.synchronizedList(new ArrayList<>());
+
+	/**
+	 * List of aggregated device
+	 */
+	private List<AggregatedDevice> aggregatedDeviceList = Collections.synchronizedList(new ArrayList<>());
+
+	/**
+	 * cache data for aggregated
+	 */
+	private List<AggregatedDevice> cachedData = Collections.synchronizedList(new ArrayList<>());
 
 	/**
 	 * current site value
@@ -72,6 +235,8 @@ public class DanteDirectorCommunicator extends RestCommunicator implements Aggre
 	 * @throws IOException If an I/O error occurs while loading the properties mapping YAML file.
 	 */
 	public DanteDirectorCommunicator() throws IOException {
+		Map<String, PropertiesMapping> mapping = new PropertiesMappingParser().loadYML(DanteDirectorConstant.MODEL_MAPPING_AGGREGATED_DEVICE, getClass());
+		aggregatedDeviceProcessor = new AggregatedDeviceProcessor(mapping);
 		this.setTrustAllCertificates(true);
 	}
 
@@ -148,25 +313,47 @@ public class DanteDirectorCommunicator extends RestCommunicator implements Aggre
 	 */
 	@Override
 	public void controlProperty(ControllableProperty controllableProperty) throws Exception {
-		String property = controllableProperty.getProperty();
-		String value = String.valueOf(controllableProperty.getValue());
-
-		String[] propertyList = property.split(DanteDirectorConstant.HASH);
-		String propertyName = property;
-		if (property.contains(DanteDirectorConstant.HASH)) {
-			propertyName = propertyList[1];
-		}
 		reentrantLock.lock();
 		try {
+			String property = controllableProperty.getProperty();
+			String deviceId = controllableProperty.getDeviceId();
+			String value = String.valueOf(controllableProperty.getValue());
+
+			String[] propertyList = property.split(DanteDirectorConstant.HASH);
+			String propertyName = property;
+			if (property.contains(DanteDirectorConstant.HASH)) {
+				propertyName = propertyList[1];
+			}
 			if (DanteDirectorConstant.SITE_NAME.equals(propertyName)) {
 				Optional<JsonNode> matchingDomain = domainList.stream().filter(item -> item.get(DanteDirectorConstant.NAME).asText().equals(value)).findFirst();
 				if (matchingDomain.isPresent()) {
 					currentSiteValue = matchingDomain.get();
 				} else {
-					throw new IllegalArgumentException("Error while switch site name");
+					throw new IllegalArgumentException("Error when control SiteName");
 				}
 			} else {
-				System.out.println("Handle control for aggregated device");
+				Optional<AggregatedDevice> aggregatedDevice = aggregatedDeviceList.stream().filter(item -> item.getDeviceId().equals(deviceId)).findFirst();
+				if (aggregatedDevice.isPresent()) {
+					AggregatedInformation item = AggregatedInformation.getByDefaultName(propertyName);
+					switch (item) {
+						case LEADER:
+						case DELAY_REQUEST:
+						case EXTERNAL_WORD_CLOCK:
+						case UNICAST_CLOCKING:
+							AggregatedControllableProperty aggregatedProperty = AggregatedControllableProperty.getByDefaultName(propertyName);
+							String requestValue = DanteDirectorConstant.NUMBER_ONE.equals(value) ? DanteDirectorConstant.TRUE : DanteDirectorConstant.FALSE;
+							sendCommandToControlDevice(deviceId, requestValue, aggregatedProperty);
+							updateCacheValue(deviceId, propertyName, requestValue);
+							break;
+						default:
+							if (logger.isWarnEnabled()) {
+								logger.warn(String.format("Unable to execute %s command on device %s: Not Supported", property, deviceId));
+							}
+							break;
+					}
+				} else {
+					throw new IllegalArgumentException(String.format("Unable to control property: %s as the device does not exist.", property));
+				}
 			}
 		} finally {
 			reentrantLock.unlock();
@@ -195,7 +382,16 @@ public class DanteDirectorCommunicator extends RestCommunicator implements Aggre
 	 */
 	@Override
 	public List<AggregatedDevice> retrieveMultipleStatistics() throws Exception {
-		return null;
+		if (executorService == null) {
+			executorService = Executors.newFixedThreadPool(1);
+			executorService.submit(deviceDataLoader = new DanteDirectorDataLoader());
+		}
+		nextDevicesCollectionIterationTimestamp = System.currentTimeMillis();
+		updateValidRetrieveStatisticsTimestamp();
+		if (cachedData.isEmpty()) {
+			return Collections.emptyList();
+		}
+		return cloneAndPopulateAggregatedDeviceList();
 	}
 
 	/**
@@ -232,6 +428,8 @@ public class DanteDirectorCommunicator extends RestCommunicator implements Aggre
 		if (logger.isDebugEnabled()) {
 			logger.debug("Internal init is called.");
 		}
+		executorService = Executors.newFixedThreadPool(1);
+		executorService.submit(deviceDataLoader = new DanteDirectorDataLoader());
 		super.internalInit();
 	}
 
@@ -243,12 +441,43 @@ public class DanteDirectorCommunicator extends RestCommunicator implements Aggre
 		if (logger.isDebugEnabled()) {
 			logger.debug("Internal destroy is called.");
 		}
+		if (deviceDataLoader != null) {
+			deviceDataLoader.stop();
+			deviceDataLoader = null;
+		}
+		if (executorService != null) {
+			executorService.shutdownNow();
+			executorService = null;
+		}
 		if (localExtendedStatistics != null && localExtendedStatistics.getStatistics() != null && localExtendedStatistics.getControllableProperties() != null) {
 			localExtendedStatistics.getStatistics().clear();
 			localExtendedStatistics.getControllableProperties().clear();
 		}
 		domainList = null;
+		nextDevicesCollectionIterationTimestamp = 0;
+		aggregatedDeviceList.clear();
+		cachedData.clear();
 		super.internalDestroy();
+	}
+
+	/**
+	 * Sends a control command to the specified device for a controllable property.
+	 *
+	 * @param deviceId The ID of the device to control.
+	 * @param value The value to set for the controllable property.
+	 * @param property The controllable property to control.
+	 */
+	private void sendCommandToControlDevice(String deviceId, String value, AggregatedControllableProperty property) {
+		try {
+			String command = String.format(DanteDirectorQuery.CONTROL_CLOCK_SYNC, property.getCommandParam(), property.getCommandName(), deviceId, value);
+			JsonNode response = this.doPost(DanteDirectorConstant.URL, command, JsonNode.class);
+			if (response.has(DanteDirectorConstant.ERRORS)) {
+				throw new IllegalArgumentException("The command response is error");
+			}
+
+		} catch (Exception e) {
+			throw new IllegalArgumentException(String.format("Can't control %s with value is %s. %s", property.getName(), DanteDirectorConstant.TRUE.equals(value) ? "On" : "Off", e.getMessage()));
+		}
 	}
 
 	/**
@@ -325,6 +554,189 @@ public class DanteDirectorCommunicator extends RestCommunicator implements Aggre
 	}
 
 	/**
+	 * Populates device details by making a POST request to retrieve information from Dante Director.
+	 * The method clears the existing aggregated device list, processes the response, and updates the list accordingly.
+	 * Any error during the process is logged.
+	 */
+	private void populateDeviceDetails() {
+		try {
+			JsonNode response = this.doPost(DanteDirectorConstant.URL, DanteDirectorQuery.DEVICES_INFO, JsonNode.class);
+			if (response.has(DanteDirectorConstant.DATA) && response.get(DanteDirectorConstant.DATA).has(DanteDirectorConstant.DOMAINS)) {
+				cachedData.clear();
+				for (JsonNode domainNode : response.get(DanteDirectorConstant.DATA).get(DanteDirectorConstant.DOMAINS)) {
+					String domainId = domainNode.get(DanteDirectorConstant.ID).asText();
+					if (checkExistDomainId(domainId)) {
+						JsonNode jsonArray = domainNode.get(DanteDirectorConstant.DEVICES);
+						for (JsonNode jsonNode : jsonArray) {
+							JsonNode node = objectMapper.createArrayNode().add(jsonNode);
+
+							String id = jsonNode.get(DanteDirectorConstant.ID).asText();
+							cachedData.removeIf(item -> item.getDeviceId().equals(id));
+							cachedData.addAll(aggregatedDeviceProcessor.extractDevices(node));
+						}
+					}
+				}
+			}
+		} catch (Exception e) {
+			logger.error("Error while populate aggregated device", e);
+		}
+	}
+
+	/**
+	 * Clones and populates a new list of aggregated devices with mapped monitoring properties.
+	 *
+	 * @return A new list of {@link AggregatedDevice} objects with mapped monitoring properties.
+	 */
+	private List<AggregatedDevice> cloneAndPopulateAggregatedDeviceList() {
+		aggregatedDeviceList.clear();
+		synchronized (cachedData) {
+			for (AggregatedDevice item : cachedData) {
+				AggregatedDevice aggregatedDevice = new AggregatedDevice();
+				Map<String, String> cachedValue = item.getProperties();
+				aggregatedDevice.setDeviceId(item.getDeviceId());
+				aggregatedDevice.setDeviceModel(item.getDeviceModel());
+				aggregatedDevice.setDeviceName(item.getDeviceName());
+				aggregatedDevice.setDeviceOnline(item.getDeviceOnline());
+
+				List<AdvancedControllableProperty> controllableProperties = new ArrayList<>();
+				Map<String, String> stats = new HashMap<>();
+				Map<String, String> controlStats = new HashMap<>();
+				mapMonitoringProperty(cachedValue, stats, controlStats, controllableProperties);
+				if (Boolean.TRUE.equals(aggregatedDevice.getDeviceOnline())) {
+					stats.putAll(controlStats);
+					aggregatedDevice.setControllableProperties(controllableProperties);
+				}
+				aggregatedDevice.setProperties(stats);
+				aggregatedDeviceList.add(aggregatedDevice);
+			}
+		}
+		return aggregatedDeviceList;
+	}
+
+	/**
+	 * Checks if a given domain ID exists in the list of domains.
+	 *
+	 * @param id The domain ID to check for existence.
+	 * @return true if the domain ID exists in the list; false otherwise.
+	 */
+	private boolean checkExistDomainId(String id) {
+		for (JsonNode item : domainList) {
+			if (item.get(DanteDirectorConstant.ID).asText().equals(id)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * Maps monitoring properties from cached values to statistics and advanced control properties.
+	 *
+	 * @param cachedValue The cached values map containing raw monitoring data.
+	 * @param stats The statistics map to store mapped monitoring properties.
+	 * @param statsControl The advanced control map to store properties requiring control.
+	 * @param advancedControllableProperties The list of advanced controllable properties to be populated.
+	 */
+	private void mapMonitoringProperty(Map<String, String> cachedValue, Map<String, String> stats, Map<String, String> statsControl, List<AdvancedControllableProperty> advancedControllableProperties) {
+		for (AggregatedInformation property : AggregatedInformation.values()) {
+			String name = property.getName();
+			String propertyName = property.getGroup() + name;
+			String value = getDefaultValueForNullData(cachedValue.get(name));
+			switch (property) {
+				case CONNECTED_SINCE:
+					stats.put(propertyName, convertDateTimeFormat(value));
+					break;
+				case DOMAIN_CLOCKING:
+					stats.put(propertyName, DanteDirectorConstant.TRUE.equals(value) ? "Grand Leader" : DanteDirectorConstant.NONE);
+					break;
+				case UNICAST:
+					String unicastFollower = getDefaultValueForNullData(cachedValue.get("UnicastFollower"));
+					String unicastLeader = getDefaultValueForNullData(cachedValue.get("UnicastLeader"));
+					if (DanteDirectorConstant.TRUE.equals(unicastLeader) && DanteDirectorConstant.TRUE.equals(unicastFollower)) {
+						value = "Unicast Leader, Unicast Follower";
+					} else if (DanteDirectorConstant.TRUE.equals(unicastLeader)) {
+						value = "Unicast Leader";
+					} else if (DanteDirectorConstant.TRUE.equals(unicastFollower)) {
+						value = "Unicast Follower";
+					} else {
+						value = DanteDirectorConstant.NONE;
+					}
+					stats.put(propertyName, value);
+					break;
+				case PRIMARY_MULTICAST:
+					stats.put(propertyName, DanteDirectorConstant.TRUE.equals(value) ? "Multicast Leader" : DanteDirectorConstant.NONE);
+					break;
+				case EXTERNAL_WORD_CLOCK:
+				case LEADER:
+				case UNICAST_CLOCKING:
+				case DELAY_REQUEST:
+					if (DanteDirectorConstant.TRUE.equals(getDefaultValueForNullData(cachedValue.get(name + "Capability")))) {
+						addAdvancedControlProperties(advancedControllableProperties, statsControl,
+								createSwitch(propertyName, DanteDirectorConstant.TRUE.equals(value) ? 1 : 0, DanteDirectorConstant.OFF, DanteDirectorConstant.ON),
+								DanteDirectorConstant.TRUE.equals(value) ? DanteDirectorConstant.NUMBER_ONE : DanteDirectorConstant.ZERO);
+					}
+					break;
+				case RECEIVE_CHANNELS:
+					try {
+						List<ChannelDTO> channelList = objectMapper.readValue(value, new TypeReference<List<ChannelDTO>>() {
+						});
+						if (!channelList.isEmpty()) {
+							for (ChannelDTO item : channelList) {
+								String channelName = item.getName();
+								if (StringUtils.isNotNullOrEmpty(item.getSubscribedChannel()) && StringUtils.isNotNullOrEmpty(item.getSubscribedDevice())) {
+									stats.put("ReceiveChannels#" + channelName, item.getSubscribedChannel() + "@" + item.getSubscribedDevice());
+								}
+							}
+						}
+					} catch (Exception e) {
+						logger.error("Error while retrieve Receive Channels");
+					}
+					break;
+				default:
+					stats.put(propertyName, value);
+			}
+		}
+	}
+
+	/**
+	 * Updates the cache value for a specified property in the aggregated device list.
+	 *
+	 * @param deviceId The ID of the device whose cache value needs to be updated.
+	 * @param name The name of the property to be updated.
+	 * @param value The new value to set for the property.
+	 */
+	private void updateCacheValue(String deviceId, String name, String value) {
+		cachedData.stream().filter(item -> deviceId.equals(item.getDeviceId()))
+				.findFirst().ifPresent(item -> item.getProperties().put(name, value));
+	}
+
+	/**
+	 * Converts a date-time string from the default format to the target format with GMT timezone.
+	 *
+	 * @param inputDateTime The input date-time string in the default format.
+	 * @return The date-time string after conversion to the target format with GMT timezone.
+	 * Returns {@link DanteDirectorConstant#NONE} if there is an error during conversion.
+	 * @throws Exception If there is an error parsing the input date-time string.
+	 */
+	private String convertDateTimeFormat(String inputDateTime) {
+		if (DanteDirectorConstant.NONE.equals(inputDateTime)) {
+			return inputDateTime;
+		}
+		try {
+			SimpleDateFormat inputFormat = new SimpleDateFormat(DanteDirectorConstant.DEFAULT_FORMAT_DATETIME);
+			inputFormat.setTimeZone(TimeZone.getTimeZone("GMT"));
+
+			SimpleDateFormat outputFormat = new SimpleDateFormat(DanteDirectorConstant.TARGET_FORMAT_DATETIME);
+			outputFormat.setTimeZone(TimeZone.getTimeZone("GMT"));
+
+			Date date = inputFormat.parse(inputDateTime);
+			return outputFormat.format(date);
+		} catch (Exception e) {
+			e.printStackTrace();
+			return DanteDirectorConstant.NONE;
+		}
+	}
+
+	/**
 	 * check value is null or empty
 	 *
 	 * @param value input value
@@ -332,6 +744,27 @@ public class DanteDirectorCommunicator extends RestCommunicator implements Aggre
 	 */
 	private String getDefaultValueForNullData(String value) {
 		return StringUtils.isNotNullOrEmpty(value) ? value : DanteDirectorConstant.NONE;
+	}
+
+	/**
+	 * Create switch is control property for metric
+	 *
+	 * @param name the name of property
+	 * @param status initial status (0|1)
+	 * @return AdvancedControllableProperty switch instance
+	 */
+	private AdvancedControllableProperty createSwitch(String name, int status, String labelOff, String labelOn) {
+		AdvancedControllableProperty.Switch toggle = new AdvancedControllableProperty.Switch();
+		toggle.setLabelOff(labelOff);
+		toggle.setLabelOn(labelOn);
+
+		AdvancedControllableProperty advancedControllableProperty = new AdvancedControllableProperty();
+		advancedControllableProperty.setName(name);
+		advancedControllableProperty.setValue(status);
+		advancedControllableProperty.setType(toggle);
+		advancedControllableProperty.setTimestamp(new Date());
+
+		return advancedControllableProperty;
 	}
 
 	/***

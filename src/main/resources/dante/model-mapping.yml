@@ -1,0 +1,48 @@
+models:
+  - model:
+      name: Generic
+      vendor: DanteDirector
+      filter: true
+      mapping:
+        deviceId: get("id")
+        deviceName: get("name")
+        deviceModel: get("identity")?.get("productModelName")
+        deviceOnline: get("connection")?.get("state").asText().equalsIgnoreCase("READY")
+      properties:
+        Manufacturer: get("manufacturer")?.get("name")
+        ProductVersion: get("identity")?.get("productVersion")
+        ConnectedSince: get("connection")?.get("lastChanged")
+        EnrolmentState: get("enrolmentState")
+        Clocking: get("status")?.get("clocking")
+        Connectivity: get("status")?.get("connectivity")
+        Latency: get("status")?.get("latency")
+        Subscriptions: get("status")?.get("subscriptions")
+        Location: get("location")
+        Description: get("description")
+        Comments: get("comments")
+        SiteName: get("domain")?.get("name")
+
+        DiscoveryType: get("discovery")?.get("type")
+        DiscoveryDomainName: get("discovery")?.get("fqdn")
+        IPAddress: get("interfaces")?.get(0).get("address")
+        MACAddress: get("interfaces")?.get(0).get("macAddress")
+        DanteSoftwareVersion: get("identity")?.get("productSoftwareVersion")
+        DanteVersion: get("identity")?.get("danteVersion")
+
+        MuteStatus: get("clockingState")?.get("muteStatus")
+        SyncStatus: get("clockingState")?.get("locked")
+        DomainClocking: get("clockingState")?.get("grandLeader")
+        PrimaryMulticast: get("clockingState")?.get("multicastLeader")
+        UnicastFollower: get("clockingState")?.get("unicastFollower")
+        UnicastLeader: get("clockingState")?.get("unicastLeader")
+        SyncToExternalWordClock: get("clockPreferences")?.get("externalWordClock")
+        PreferredLeader: get("clockPreferences")?.get("leader")
+        UnicastClocking: get("clockPreferences")?.get("unicastClocking")
+        V1DelayRequests: get("clockPreferences")?.get("v1UnicastDelayRequests")
+        SyncToExternalWordClockCapability: get("capabilities")?.get("CAN_WRITE_EXT_WORD_CLOCK")
+        PreferredLeaderCapability: get("capabilities")?.get("CAN_WRITE_PREFERRED_MASTER")
+        UnicastClockingCapability: get("capabilities")?.get("CAN_UNICAST_CLOCKING")
+        V1DelayRequestsCapability: get("capabilities")?.get("CAN_WRITE_UNICAST_DELAY_REQUESTS")
+        FrequencyOffset(ppm): get("clockingState")?.get("frequencyOffset")
+
+        ReceiveChannels: get("rxChannels")

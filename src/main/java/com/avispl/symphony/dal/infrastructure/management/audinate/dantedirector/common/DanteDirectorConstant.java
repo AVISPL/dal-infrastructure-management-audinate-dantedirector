@@ -14,8 +14,19 @@ package com.avispl.symphony.dal.infrastructure.management.audinate.dantedirector
 public class DanteDirectorConstant {
 	public static final String URL = "graphql";
 	public static final String HASH = "#";
+	public static final String MODEL_MAPPING_AGGREGATED_DEVICE = "dante/model-mapping.yml";
 	public static final String NONE = "None";
 	public static final String EMPTY = "";
+	public static final String TRUE = "true";
+	public static final String FALSE = "false";
+	public static final String ON = "On";
+	public static final String OFF = "Off";
+	public static final String NUMBER_ONE = "1";
+	public static final String ZERO = "0";
+	public static final String CLOCK_SYNCHRONISATION_GROUP = "ClockSynchronisation#";
+	public static final String STATUS_GROUP = "Status#";
+	public static final String DEFAULT_FORMAT_DATETIME = "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'";
+	public static final String TARGET_FORMAT_DATETIME = "MMM d, yyyy, h:mm a";
 	public static final String SITE_NAME = "SiteName";
 	public static final String ERRORS = "errors";
 	public static final String DATA = "data";
