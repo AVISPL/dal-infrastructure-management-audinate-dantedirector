@@ -1,7 +1,11 @@
+/*
+ *  Copyright (c) 2024 AVI-SPL, Inc. All Rights Reserved.
+ */
+
 package com.avispl.symphony.dal.infrastructure.management.audinate.dantedirector.dto;
 
 /**
- * ChannelDTO
+ * Represents a DTO (Data Transfer Object) for a channel
  *
  * @author Harry / Symphony Dev Team<br>
  * Created on 3/8/2024
@@ -13,6 +17,15 @@ public class ChannelDTO {
 	private String subscribedChannel;
 	private String subscribedDevice;
 
+
+	/**
+	 * Constructs a ChannelDTO with the specified properties.
+	 *
+	 * @param name The name of the channel.
+	 * @param mediaType The media type of the channel.
+	 * @param subscribedChannel The subscribed channel.
+	 * @param subscribedDevice The subscribed device.
+	 */
 	public ChannelDTO(String name, String mediaType, String subscribedChannel, String subscribedDevice) {
 		this.name = name;
 		this.mediaType = mediaType;
@@ -20,6 +33,9 @@ public class ChannelDTO {
 		this.subscribedDevice = subscribedDevice;
 	}
 
+	/**
+	 * Constructs an empty ChannelDTO.
+	 */
 	public ChannelDTO() {
 	}
 

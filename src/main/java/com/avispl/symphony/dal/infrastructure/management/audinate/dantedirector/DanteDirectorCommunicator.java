@@ -54,7 +54,65 @@ import com.avispl.symphony.dal.infrastructure.management.audinate.dantedirector.
 import com.avispl.symphony.dal.infrastructure.management.audinate.dantedirector.dto.ChannelDTO;
 import com.avispl.symphony.dal.util.StringUtils;
 
-
+/**
+ * DanteDirectorCommunicator
+ * Supported features are:
+ * Monitoring Aggregator Device:
+ *  <ul>
+ *  <li> - Clocking</li>
+ *  <li> - Connectivity</li>
+ *  <li> - Latency</li>
+ *  <li> - NumberOfDevices</li>
+ *  <li> - SiteName</li>
+ *  <li> - Subscriptions</li>
+ *  <ul>
+ *
+ * General Info Aggregated Device:
+ * <ul>
+ * <li> - Comments</li>
+ * <li> - ConnectedSince</li>
+ * <li> - DanteSoftwareVersion</li>
+ * <li> - DanteVersion</li>
+ * <li> - Description</li>
+ * <li> - deviceId</li>
+ * <li> - deviceModel</li>
+ * <li> - deviceName</li>
+ * <li> - deviceOnline</li>
+ * <li> - DiscoveryDomainName</li>
+ * <li> - DiscoveryType</li>
+ * <li> - EnrolmentState</li>
+ * <li> - IPAddress</li>
+ * <li> - Location</li>
+ * <li> - MACAddress</li>
+ * <li> - Manufacturer</li>
+ * <li> - ProductVersion</li>
+ * <li> - SiteName</li>
+ * </ul>
+ *
+ * ClockSynchronisation Group:
+ * <ul>
+ * <li> - DomainClocking</li>
+ * <li> - FrequencyOffset(ppm)</li>
+ * <li> - MuteStatus</li>
+ * <li> - PreferredLeader</li>
+ * <li> - PrimaryMulticast</li>
+ * <li> - SyncStatus</li>
+ * <li> - Unicast</li>
+ * <li> - UnicastClocking</li>
+ * <li> - V1DelayRequests</li>
+ * </ul>
+ *
+ * Status Group:
+ * <ul>
+ * <li> - Clocking</li>
+ * <li> - Connectivity</li>
+ * <li> - Latency</li>
+ * <li> - Subscriptions</li>
+ * </ul>
+ * @author Harry / Symphony Dev Team<br>
+ * Created on 03/05/2024
+ * @since 1.0.0
+ */
 public class DanteDirectorCommunicator extends RestCommunicator implements Aggregator, Monitorable, Controller {
 	/**
 	 * Process that is running constantly and triggers collecting data from Dante Director SE API endpoints, based on the given timeouts and thresholds.
@@ -476,7 +534,7 @@ public class DanteDirectorCommunicator extends RestCommunicator implements Aggre
 			}
 
 		} catch (Exception e) {
-			throw new IllegalArgumentException(String.format("Can't control %s with value is %s. %s", property.getName(), DanteDirectorConstant.TRUE.equals(value) ? "On" : "Off", e.getMessage()));
+			throw new IllegalArgumentException(String.format("Can't control %s with value is %s. %s", property.getName(), DanteDirectorConstant.TRUE.equals(value) ? DanteDirectorConstant.ON : DanteDirectorConstant.OFF, e.getMessage()));
 		}
 	}
 
@@ -517,7 +575,7 @@ public class DanteDirectorCommunicator extends RestCommunicator implements Aggre
 	private boolean checkUnauthenticated(JsonNode data) {
 		if (data.isArray()) {
 			for (JsonNode item : data) {
-				if ("UNAUTHENTICATED".equals(item.get("extensions").get("code").asText())) {
+				if ("UNAUTHENTICATED".equals(item.get(DanteDirectorConstant.EXTENSIONS).get(DanteDirectorConstant.CODE).asText())) {
 					return true;
 				}
 			}
@@ -663,13 +721,13 @@ public class DanteDirectorCommunicator extends RestCommunicator implements Aggre
 					stats.put(propertyName, value);
 					break;
 				case PRIMARY_MULTICAST:
-					stats.put(propertyName, DanteDirectorConstant.TRUE.equals(value) ? "Multicast Leader" : DanteDirectorConstant.NONE);
+					stats.put(propertyName, DanteDirectorConstant.TRUE.equals(value) ? "Multicast Leader" : "Multicast Follower");
 					break;
 				case EXTERNAL_WORD_CLOCK:
 				case LEADER:
 				case UNICAST_CLOCKING:
 				case DELAY_REQUEST:
-					if (DanteDirectorConstant.TRUE.equals(getDefaultValueForNullData(cachedValue.get(name + "Capability")))) {
+					if (DanteDirectorConstant.TRUE.equals(getDefaultValueForNullData(cachedValue.get(name + DanteDirectorConstant.CAPABILITY)))) {
 						addAdvancedControlProperties(advancedControllableProperties, statsControl,
 								createSwitch(propertyName, DanteDirectorConstant.TRUE.equals(value) ? 1 : 0, DanteDirectorConstant.OFF, DanteDirectorConstant.ON),
 								DanteDirectorConstant.TRUE.equals(value) ? DanteDirectorConstant.NUMBER_ONE : DanteDirectorConstant.ZERO);
@@ -683,12 +741,12 @@ public class DanteDirectorCommunicator extends RestCommunicator implements Aggre
 							for (ChannelDTO item : channelList) {
 								String channelName = item.getName();
 								if (StringUtils.isNotNullOrEmpty(item.getSubscribedChannel()) && StringUtils.isNotNullOrEmpty(item.getSubscribedDevice())) {
-									stats.put("ReceiveChannels#" + channelName, item.getSubscribedChannel() + "@" + item.getSubscribedDevice());
+									stats.put(DanteDirectorConstant.RECEIVE_CHANNEL_GROUP + channelName, item.getSubscribedChannel() + "@" + item.getSubscribedDevice());
 								}
 							}
 						}
 					} catch (Exception e) {
-						logger.error("Error while retrieve Receive Channels");
+						logger.error("Error while retrieve Receive Channels", e);
 					}
 					break;
 				default:

@@ -25,9 +25,11 @@ public class DanteDirectorConstant {
 	public static final String ZERO = "0";
 	public static final String CLOCK_SYNCHRONISATION_GROUP = "ClockSynchronisation#";
 	public static final String STATUS_GROUP = "Status#";
+	public static final String RECEIVE_CHANNEL_GROUP = "ReceiveChannels#";
 	public static final String DEFAULT_FORMAT_DATETIME = "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'";
 	public static final String TARGET_FORMAT_DATETIME = "MMM d, yyyy, h:mm a";
 	public static final String SITE_NAME = "SiteName";
+	public static final String CAPABILITY = "Capability";
 	public static final String ERRORS = "errors";
 	public static final String DATA = "data";
 	public static final String DOMAINS = "domains";
@@ -35,4 +37,6 @@ public class DanteDirectorConstant {
 	public static final String STATUS = "status";
 	public static final String DEVICES = "devices";
 	public static final String ID = "id";
+	public static final String EXTENSIONS = "extensions";
+	public static final String CODE = "code";
 }
