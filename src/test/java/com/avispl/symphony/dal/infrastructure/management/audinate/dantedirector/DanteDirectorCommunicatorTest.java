@@ -56,7 +56,7 @@ public class DanteDirectorCommunicatorTest {
 		Map<String, String> statistics = extendedStatistic.getStatistics();
 		List<AdvancedControllableProperty> advancedControllableProperties = extendedStatistic.getControllableProperties();
 		Assert.assertEquals(6, statistics.size());
-		Assert.assertEquals(0, advancedControllableProperties.size());
+		Assert.assertEquals(1, advancedControllableProperties.size());
 	}
 
 	/**
