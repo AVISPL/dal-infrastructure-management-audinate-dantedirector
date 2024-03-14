@@ -11,7 +11,7 @@ models:
       properties:
         Manufacturer: get("manufacturer")?.get("name")
         ProductVersion: get("identity")?.get("productVersion")
-        ConnectedSince: get("connection")?.get("lastChanged")
+        ConnectedSince(GMT): get("connection")?.get("lastChanged")
         EnrolmentState: get("enrolmentState")
         Clocking: get("status")?.get("clocking")
         Connectivity: get("status")?.get("connectivity")
@@ -26,6 +26,8 @@ models:
         DiscoveryDomainName: get("discovery")?.get("fqdn")
         IPAddress: get("interfaces")?.get(0).get("address")
         MACAddress: get("interfaces")?.get(0).get("macAddress")
+        Subnet: get("interfaces")?.get(0).get("subnet")
+        Netmask: get("interfaces")?.get(0).get("netmask")
         DanteSoftwareVersion: get("identity")?.get("productSoftwareVersion")
         DanteVersion: get("identity")?.get("danteVersion")
 

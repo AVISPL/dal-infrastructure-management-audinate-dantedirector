@@ -17,7 +17,7 @@ import java.util.Optional;
 public enum AggregatedInformation {
 	MANUFACTURER("Manufacturer", ""),
 	PRODUCT_VERSION("ProductVersion", ""),
-	CONNECTED_SINCE("ConnectedSince", ""),
+	CONNECTED_SINCE("ConnectedSince(GMT)", ""),
 	ENROLMENT_STATE("EnrolmentState", ""),
 	CLOCKING("Clocking", DanteDirectorConstant.STATUS_GROUP),
 	CONNECTIVITY("Connectivity", DanteDirectorConstant.STATUS_GROUP),

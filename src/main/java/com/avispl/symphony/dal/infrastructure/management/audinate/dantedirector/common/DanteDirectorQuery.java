@@ -27,7 +27,7 @@ public class DanteDirectorQuery {
 			+ "discovery { type fqdn } "
 			+ "identity { productModelName productVersion danteHardwareVersion productSoftwareVersion danteVersion } "
 			+ "manufacturer { name } "
-			+ "interfaces { address macAddress } "
+			+ "interfaces { address macAddress subnet netmask} "
 			+ "capabilities { CAN_WRITE_UNICAST_DELAY_REQUESTS  CAN_WRITE_PREFERRED_MASTER  CAN_WRITE_EXT_WORD_CLOCK  CAN_UNICAST_CLOCKING   } "
 			+ "status { clocking connectivity latency subscriptions summary }  "
 			+ "rxChannels { mediaType  name  subscribedChannel  subscribedDevice  } "

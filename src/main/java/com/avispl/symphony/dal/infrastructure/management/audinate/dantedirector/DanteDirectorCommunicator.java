@@ -721,7 +721,13 @@ public class DanteDirectorCommunicator extends RestCommunicator implements Aggre
 					stats.put(propertyName, value);
 					break;
 				case PRIMARY_MULTICAST:
-					stats.put(propertyName, DanteDirectorConstant.TRUE.equals(value) ? "Multicast Leader" : "Multicast Follower");
+					String subNet = getDefaultValueForNullData(cachedValue.get("Subnet"));
+					String netMask = getDefaultValueForNullData(cachedValue.get("Netmask"));
+					String newValue = DanteDirectorConstant.TRUE.equals(value) ? "Multicast Leader" : "Multicast Follower";
+					if (!DanteDirectorConstant.NONE.equals(subNet) && !DanteDirectorConstant.NONE.equals(netMask)) {
+						newValue += " (" + subNet + "/" + netMask + ")";
+					}
+					stats.put(propertyName, newValue);
 					break;
 				case EXTERNAL_WORD_CLOCK:
 				case LEADER:
