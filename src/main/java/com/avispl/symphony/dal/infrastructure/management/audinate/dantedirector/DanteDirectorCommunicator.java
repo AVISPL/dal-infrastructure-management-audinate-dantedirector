@@ -512,6 +512,7 @@ public class DanteDirectorCommunicator extends RestCommunicator implements Aggre
 			localExtendedStatistics.getControllableProperties().clear();
 		}
 		domainList = null;
+		currentSiteValue = null;
 		nextDevicesCollectionIterationTimestamp = 0;
 		aggregatedDeviceList.clear();
 		cachedData.clear();
@@ -594,6 +595,9 @@ public class DanteDirectorCommunicator extends RestCommunicator implements Aggre
 		List<String> siteNameList = domainList.stream().map(node -> node.get(DanteDirectorConstant.NAME).asText()).collect(Collectors.toList());
 		if (currentSiteValue == null) {
 			currentSiteValue = domainList.get(0);
+		} else {
+			Optional<JsonNode> matchingDomain = domainList.stream().filter(item -> item.get(DanteDirectorConstant.NAME).asText().equals(currentSiteValue.get(DanteDirectorConstant.NAME).asText())).findFirst();
+			currentSiteValue = matchingDomain.orElse(currentSiteValue);
 		}
 		for (SystemInformation item : SystemInformation.values()) {
 			String propertyName = item.getName();
@@ -605,7 +609,8 @@ public class DanteDirectorCommunicator extends RestCommunicator implements Aggre
 		if (domainList.size() > 1) {
 			addAdvancedControlProperties(advancedControllableProperties, stats, createDropdown(DanteDirectorConstant.SITE_NAME, siteNameList.toArray(new String[0]), name), name);
 		} else {
-			stats.put(DanteDirectorConstant.SITE_NAME, name);
+			advancedControllableProperties.removeIf(item -> item.getName().equalsIgnoreCase(DanteDirectorConstant.SITE_NAME));
+			stats.put(DanteDirectorConstant.SITE_NAME + DanteDirectorConstant.SPACE, name);
 		}
 		//Number of devices
 		stats.put("NumberOfDevices", String.valueOf(currentSiteValue.get(DanteDirectorConstant.DEVICES).size()));
@@ -679,7 +684,7 @@ public class DanteDirectorCommunicator extends RestCommunicator implements Aggre
 	 */
 	private boolean checkExistDomainId(String id) {
 		for (JsonNode item : domainList) {
-			if (item.get(DanteDirectorConstant.ID).asText().equals(id)) {
+			if (item.has(DanteDirectorConstant.ID) && item.get(DanteDirectorConstant.ID).asText().equals(id)) {
 				return true;
 			}
 		}
@@ -795,7 +800,7 @@ public class DanteDirectorCommunicator extends RestCommunicator implements Aggre
 			Date date = inputFormat.parse(inputDateTime);
 			return outputFormat.format(date);
 		} catch (Exception e) {
-			e.printStackTrace();
+			logger.warn("Can't convert the date time value");
 			return DanteDirectorConstant.NONE;
 		}
 	}

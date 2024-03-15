@@ -16,6 +16,7 @@ public class DanteDirectorConstant {
 	public static final String HASH = "#";
 	public static final String MODEL_MAPPING_AGGREGATED_DEVICE = "dante/model-mapping.yml";
 	public static final String NONE = "None";
+	public static final String SPACE = " ";
 	public static final String EMPTY = "";
 	public static final String TRUE = "true";
 	public static final String FALSE = "false";
