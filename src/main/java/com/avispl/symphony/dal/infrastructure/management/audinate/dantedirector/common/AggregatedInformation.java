@@ -32,7 +32,7 @@ public enum AggregatedInformation {
 	MAC_ADDRESS("MACAddress", ""),
 	DANTE_SOFTWARE_VERSION("DanteSoftwareVersion", ""),
 	DANTE_VERSION("DanteVersion", ""),
-	SITE_NAME("SiteName", ""),
+	SITE_NAME("Site", ""),
 	MUTE_STATUS("MuteStatus", DanteDirectorConstant.CLOCK_SYNCHRONISATION_GROUP),
 	SYNC_STATUS("SyncStatus", DanteDirectorConstant.CLOCK_SYNCHRONISATION_GROUP),
 	DOMAIN_CLOCKING("DomainClocking", DanteDirectorConstant.CLOCK_SYNCHRONISATION_GROUP),

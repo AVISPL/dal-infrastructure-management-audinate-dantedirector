@@ -40,4 +40,11 @@ public class DanteDirectorQuery {
 			+ "\"variables\": {"
 			+ "\"input\" : "
 			+ "{\"deviceId\":\"%s\", \"enabled\":%s}}}";
+
+	public static final String CONTROL_SITE = "{\"query\":\"mutation DevicesEnroll($input: DevicesEnrollInput!) "
+			+ "{ DevicesEnroll(input: $input) "
+			+ "{ ok } }\","
+			+ "\"variables\": {"
+			+ "\"input\" : "
+			+ "{\"deviceIds\": [\"%s\"], \"domainId\":\"%s\"}}}";
 }

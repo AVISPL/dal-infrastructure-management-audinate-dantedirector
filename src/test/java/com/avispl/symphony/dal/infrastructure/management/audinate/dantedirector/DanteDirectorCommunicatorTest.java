@@ -234,4 +234,23 @@ public class DanteDirectorCommunicatorTest {
 				property.equals(item.getName())).findFirst();
 		Assert.assertEquals(value, advancedControllableProperty.get().getValue());
 	}
+
+	/**
+	 * Test case for controlling site name in Dante Director.
+	 */
+	@Test
+	void testControlSiteName() throws Exception {
+		danteDirectorCommunicator.getMultipleStatistics();
+		danteDirectorCommunicator.retrieveMultipleStatistics();
+		Thread.sleep(20000);
+		danteDirectorCommunicator.retrieveMultipleStatistics();
+		ControllableProperty controllableProperty = new ControllableProperty();
+		String property = "Site";
+		String value = "AVI-Test";
+		String deviceId = "2a8d80f014a04c96921f611c5a4c9d1f";
+		controllableProperty.setProperty(property);
+		controllableProperty.setValue(value);
+		controllableProperty.setDeviceId(deviceId);
+		danteDirectorCommunicator.controlProperty(controllableProperty);
+	}
 }
