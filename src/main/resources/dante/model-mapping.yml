@@ -20,7 +20,7 @@ models:
         Location: get("location")
         Description: get("description")
         Comments: get("comments")
-        SiteName: get("domain")?.get("name")
+        Site: get("domain")?.get("name")
 
         DiscoveryType: get("discovery")?.get("type")
         DiscoveryDomainName: get("discovery")?.get("fqdn")

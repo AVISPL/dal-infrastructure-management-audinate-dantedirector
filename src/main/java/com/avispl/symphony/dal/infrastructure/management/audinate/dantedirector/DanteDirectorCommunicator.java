@@ -86,7 +86,7 @@ import com.avispl.symphony.dal.util.StringUtils;
  * <li> - MACAddress</li>
  * <li> - Manufacturer</li>
  * <li> - ProductVersion</li>
- * <li> - SiteName</li>
+ * <li> - Site</li>
  * </ul>
  *
  * ClockSynchronisation Group:
@@ -403,6 +403,17 @@ public class DanteDirectorCommunicator extends RestCommunicator implements Aggre
 							sendCommandToControlDevice(deviceId, requestValue, aggregatedProperty);
 							updateCacheValue(deviceId, propertyName, requestValue);
 							break;
+						case SITE_NAME:
+							Optional<JsonNode> node = domainList.stream().filter(itemValue -> itemValue.get(DanteDirectorConstant.NAME).asText().equals(value)).findFirst();
+							if (!node.isPresent()) {
+								throw new IllegalArgumentException("Error when control SiteName with value is " + value);
+							}
+							sendCommandToControlTheSiteName(deviceId, node.get().get(DanteDirectorConstant.ID).asText(), value);
+							updateCacheValue(deviceId, propertyName, value);
+							for (AggregatedControllableProperty control : AggregatedControllableProperty.values()) {
+								updateCacheValue(deviceId, control.getName(), "false");
+							}
+							break;
 						default:
 							if (logger.isWarnEnabled()) {
 								logger.warn(String.format("Unable to execute %s command on device %s: Not Supported", property, deviceId));
@@ -535,7 +546,28 @@ public class DanteDirectorCommunicator extends RestCommunicator implements Aggre
 			}
 
 		} catch (Exception e) {
-			throw new IllegalArgumentException(String.format("Can't control %s with value is %s. %s", property.getName(), DanteDirectorConstant.TRUE.equals(value) ? DanteDirectorConstant.ON : DanteDirectorConstant.OFF, e.getMessage()));
+			throw new IllegalArgumentException(
+					String.format("Can't control %s with value is %s. %s", property.getName(), DanteDirectorConstant.TRUE.equals(value) ? DanteDirectorConstant.ON : DanteDirectorConstant.OFF, e.getMessage()));
+		}
+	}
+
+	/**
+	 * Sends a command to control the site name associated with the specified device ID and domain ID.
+	 *
+	 * @param deviceId The ID of the device.
+	 * @param domainId The ID of the domain.
+	 * @param siteName The new site name to set.
+	 * @throws IllegalArgumentException If the command response indicates an error, or if an error occurs during the execution of the command.
+	 */
+	private void sendCommandToControlTheSiteName(String deviceId, String domainId, String siteName) {
+		try {
+			String command = String.format(DanteDirectorQuery.CONTROL_SITE, deviceId, domainId);
+			JsonNode response = this.doPost(DanteDirectorConstant.URL, command, JsonNode.class);
+			if (response.has(DanteDirectorConstant.ERRORS)) {
+				throw new IllegalArgumentException("The command response is error");
+			}
+		} catch (Exception e) {
+			throw new IllegalArgumentException(String.format("Can't control SiteName with value is %s. %s", siteName, e.getMessage()));
 		}
 	}
 
@@ -743,6 +775,10 @@ public class DanteDirectorCommunicator extends RestCommunicator implements Aggre
 								createSwitch(propertyName, DanteDirectorConstant.TRUE.equals(value) ? 1 : 0, DanteDirectorConstant.OFF, DanteDirectorConstant.ON),
 								DanteDirectorConstant.TRUE.equals(value) ? DanteDirectorConstant.NUMBER_ONE : DanteDirectorConstant.ZERO);
 					}
+					break;
+				case SITE_NAME:
+					List<String> siteNameList = domainList.stream().map(node -> node.get(DanteDirectorConstant.NAME).asText()).collect(Collectors.toList());
+					addAdvancedControlProperties(advancedControllableProperties, stats, createDropdown(propertyName, siteNameList.toArray(new String[0]), value), value);
 					break;
 				case RECEIVE_CHANNELS:
 					try {
