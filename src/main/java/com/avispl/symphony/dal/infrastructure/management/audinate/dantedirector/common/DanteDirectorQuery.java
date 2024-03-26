@@ -16,7 +16,12 @@ public class DanteDirectorQuery {
 			+ "{ domains {    "
 			+ "name    id  "
 			+ "devices { id }   "
-			+ "status { clocking  connectivity  latency  subscriptions summary }   } }\"}";
+			+ "status { clocking  connectivity  latency  subscriptions summary "
+			+ "domainAlertMessage {  "
+			+ "clocking { message  messageSeverity }  "
+			+ "connectivity { message  messageSeverity }  "
+			+ "latency { message  messageSeverity }  "
+			+ "subscriptions { message  messageSeverity } } }   } }\"}";
 
 	public static final String DEVICES_INFO = "{\"query\":\"query Devices "
 			+ "{ domains {  id name "
@@ -29,7 +34,8 @@ public class DanteDirectorQuery {
 			+ "manufacturer { name } "
 			+ "interfaces { address macAddress subnet netmask} "
 			+ "capabilities { CAN_WRITE_UNICAST_DELAY_REQUESTS  CAN_WRITE_PREFERRED_MASTER  CAN_WRITE_EXT_WORD_CLOCK  CAN_UNICAST_CLOCKING   } "
-			+ "status { clocking connectivity latency subscriptions summary }  "
+			+ "status { clocking connectivity latency subscriptions summary "
+			+ "alertMessage { clocking  connectivity  latency  subscriptions }}  "
 			+ "rxChannels { mediaType  name  subscribedChannel  subscribedDevice  } "
 			+ "clockingState { followerWithoutLeader frequencyOffset grandLeader locked multicastLeader muteStatus unicastFollower unicastLeader } "
 			+ "clockPreferences { externalWordClock leader unicastClocking v1UnicastDelayRequests } } } }\"}";
