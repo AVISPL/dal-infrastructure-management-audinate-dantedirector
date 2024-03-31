@@ -40,4 +40,5 @@ public class DanteDirectorConstant {
 	public static final String ID = "id";
 	public static final String EXTENSIONS = "extensions";
 	public static final String CODE = "code";
+	public static final String MESSAGE = "message";
 }

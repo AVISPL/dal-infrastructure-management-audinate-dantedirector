@@ -634,6 +634,10 @@ public class DanteDirectorCommunicator extends RestCommunicator implements Aggre
 		for (SystemInformation item : SystemInformation.values()) {
 			String propertyName = item.getName();
 			String value = getDefaultValueForNullData(currentSiteValue.get(DanteDirectorConstant.STATUS).get(item.getValue()).asText());
+			JsonNode message = currentSiteValue.get(DanteDirectorConstant.STATUS).get("domainAlertMessage").get(item.getValue());
+			if (message != null && message.has(DanteDirectorConstant.MESSAGE)) {
+				stats.put(propertyName + "Message", message.get(DanteDirectorConstant.MESSAGE).asText());
+			}
 			stats.put(propertyName, value);
 		}
 		//Name
@@ -737,6 +741,15 @@ public class DanteDirectorCommunicator extends RestCommunicator implements Aggre
 			String propertyName = property.getGroup() + name;
 			String value = getDefaultValueForNullData(cachedValue.get(name));
 			switch (property) {
+				case CLOCKING:
+				case LATENCY:
+				case CONNECTIVITY:
+				case SUBSCRIPTIONS:
+					if (StringUtils.isNotNullOrEmpty(cachedValue.get(name + "Message"))) {
+						value += " (" + cachedValue.get(name + "Message") + ")";
+					}
+					stats.put(propertyName, value);
+					break;
 				case CONNECTED_SINCE:
 					stats.put(propertyName, convertDateTimeFormat(value));
 					break;
@@ -769,10 +782,16 @@ public class DanteDirectorCommunicator extends RestCommunicator implements Aggre
 				case EXTERNAL_WORD_CLOCK:
 				case LEADER:
 				case UNICAST_CLOCKING:
-				case DELAY_REQUEST:
 					if (DanteDirectorConstant.TRUE.equals(getDefaultValueForNullData(cachedValue.get(name + DanteDirectorConstant.CAPABILITY)))) {
 						addAdvancedControlProperties(advancedControllableProperties, statsControl,
 								createSwitch(propertyName, DanteDirectorConstant.TRUE.equals(value) ? 1 : 0, DanteDirectorConstant.OFF, DanteDirectorConstant.ON),
+								DanteDirectorConstant.TRUE.equals(value) ? DanteDirectorConstant.NUMBER_ONE : DanteDirectorConstant.ZERO);
+					}
+					break;
+				case DELAY_REQUEST:
+					if (DanteDirectorConstant.TRUE.equals(getDefaultValueForNullData(cachedValue.get(name + DanteDirectorConstant.CAPABILITY)))) {
+						addAdvancedControlProperties(advancedControllableProperties, statsControl,
+								createSwitch(propertyName, DanteDirectorConstant.TRUE.equals(value) ? 1 : 0, "Multicast", "Unicast"),
 								DanteDirectorConstant.TRUE.equals(value) ? DanteDirectorConstant.NUMBER_ONE : DanteDirectorConstant.ZERO);
 					}
 					break;
