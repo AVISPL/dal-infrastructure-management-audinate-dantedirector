@@ -17,6 +17,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Properties;
 import java.util.TimeZone;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -122,7 +123,6 @@ public class DanteDirectorCommunicator extends RestCommunicator implements Aggre
 	 */
 	class DanteDirectorDataLoader implements Runnable {
 		private volatile boolean inProgress;
-		private volatile boolean flag = false;
 
 		public DanteDirectorDataLoader() {
 			inProgress = true;
@@ -135,7 +135,7 @@ public class DanteDirectorCommunicator extends RestCommunicator implements Aggre
 				try {
 					TimeUnit.MILLISECONDS.sleep(500);
 				} catch (InterruptedException e) {
-					// Ignore for now
+					logger.info(String.format("Sleep for 0.5 second was interrupted with error message: %s", e.getMessage()));
 				}
 
 				if (!inProgress) {
@@ -150,30 +150,40 @@ public class DanteDirectorCommunicator extends RestCommunicator implements Aggre
 				if (logger.isDebugEnabled()) {
 					logger.debug("Fetching other than aggregated device list");
 				}
-				long currentTimestamp = System.currentTimeMillis();
-				if (!flag && nextDevicesCollectionIterationTimestamp <= currentTimestamp) {
-					populateDeviceDetails();
-					flag = true;
-				}
 
 				while (nextDevicesCollectionIterationTimestamp > System.currentTimeMillis()) {
 					try {
 						TimeUnit.MILLISECONDS.sleep(1000);
 					} catch (InterruptedException e) {
-						//
+						logger.info(String.format("Sleep for 1 second was interrupted with error message: %s", e.getMessage()));
 					}
 				}
 
 				if (!inProgress) {
 					break loop;
 				}
-				if (flag) {
-					nextDevicesCollectionIterationTimestamp = System.currentTimeMillis() + 30000;
-					flag = false;
+
+				long startCycle = System.currentTimeMillis();
+				try {
+					if (logger.isDebugEnabled()) {
+						logger.debug("Fetching devices list");
+					}
+					populateDeviceDetails();
+				} catch (Exception e) {
+					logger.error("Error occurred during device list retrieval: " + e.getMessage(), e);
 				}
 
+				try{
+					nextDevicesCollectionIterationTimestamp = System.currentTimeMillis() + (getMonitoringRate() * 60000L);
+				} catch (NoSuchMethodError error){
+					nextDevicesCollectionIterationTimestamp = System.currentTimeMillis() + 60000L;
+					logger.warn("Unsupported feature: getMonitoringRate isn't available on current Cloud Connector version.", error);
+				}
+
+				lastMonitoringCycleDuration = Math.max((System.currentTimeMillis() - startCycle) / 1000, 1L);
+
 				if (logger.isDebugEnabled()) {
-					logger.debug("Finished collecting devices statistics cycle at " + new Date());
+					logger.debug("Finished collecting devices statistics cycle at " + new Date() + ", total duration: " + lastMonitoringCycleDuration);
 				}
 			}
 			// Finished collecting
@@ -258,6 +268,21 @@ public class DanteDirectorCommunicator extends RestCommunicator implements Aggre
 	private final ReentrantLock reentrantLock = new ReentrantLock();
 
 	/**
+	 * Adapter metadata properties - adapter version and build date
+	 */
+	private Properties adapterProperties;
+
+	/**
+	 * How much time last monitoring cycle took to finish
+	 */
+	private long lastMonitoringCycleDuration;
+
+	/**
+	 * Device adapter instantiation timestamp.
+	 */
+	private long adapterInitializationTimestamp;
+
+	/**
 	 * Private variable representing the local extended statistics.
 	 */
 	private ExtendedStatistics localExtendedStatistics;
@@ -293,8 +318,10 @@ public class DanteDirectorCommunicator extends RestCommunicator implements Aggre
 	 * @throws IOException If an I/O error occurs while loading the properties mapping YAML file.
 	 */
 	public DanteDirectorCommunicator() throws IOException {
+		adapterProperties = new Properties();
 		Map<String, PropertiesMapping> mapping = new PropertiesMappingParser().loadYML(DanteDirectorConstant.MODEL_MAPPING_AGGREGATED_DEVICE, getClass());
 		aggregatedDeviceProcessor = new AggregatedDeviceProcessor(mapping);
+		adapterProperties.load(getClass().getResourceAsStream("/version.properties"));
 		this.setTrustAllCertificates(true);
 	}
 
@@ -353,11 +380,14 @@ public class DanteDirectorCommunicator extends RestCommunicator implements Aggre
 		reentrantLock.lock();
 		try {
 			Map<String, String> statistics = new HashMap<>();
+			Map<String, String> dynamicStatistics = new HashMap<>();
 			List<AdvancedControllableProperty> advancedControllableProperties = new ArrayList<>();
 			ExtendedStatistics extendedStatistics = new ExtendedStatistics();
+			retrieveMetadata(statistics, dynamicStatistics);
 			retrieveSystemInfo();
 			populateSystemInfo(statistics, advancedControllableProperties);
 			extendedStatistics.setStatistics(statistics);
+			extendedStatistics.setDynamicStatistics(dynamicStatistics);
 			extendedStatistics.setControllableProperties(advancedControllableProperties);
 			localExtendedStatistics = extendedStatistics;
 		} finally {
@@ -497,6 +527,7 @@ public class DanteDirectorCommunicator extends RestCommunicator implements Aggre
 		if (logger.isDebugEnabled()) {
 			logger.debug("Internal init is called.");
 		}
+		adapterInitializationTimestamp = System.currentTimeMillis();
 		executorService = Executors.newFixedThreadPool(1);
 		executorService.submit(deviceDataLoader = new DanteDirectorDataLoader());
 		super.internalInit();
@@ -568,6 +599,34 @@ public class DanteDirectorCommunicator extends RestCommunicator implements Aggre
 			}
 		} catch (Exception e) {
 			throw new IllegalArgumentException(String.format("Can't control SiteName with value is %s. %s", siteName, e.getMessage()));
+		}
+	}
+
+	/**
+	 * Retrieves metadata information and updates the provided statistics and dynamic map.
+	 *
+	 * @param stats the map where statistics will be stored
+	 * @param dynamicStatistics the map where dynamic statistics will be stored
+	 */
+	private void retrieveMetadata(Map<String, String> stats, Map<String, String> dynamicStatistics) {
+		try {
+			dynamicStatistics.put(DanteDirectorConstant.MONITORING_CYCLE_DURATION, String.valueOf(lastMonitoringCycleDuration));
+			stats.put(DanteDirectorConstant.ADAPTER_VERSION,
+					getDefaultValueForNullData(adapterProperties.getProperty("aggregator.version")));
+			stats.put(DanteDirectorConstant.ADAPTER_BUILD_DATE,
+					getDefaultValueForNullData(adapterProperties.getProperty("aggregator.build.date")));
+			long adapterUptime = System.currentTimeMillis() - adapterInitializationTimestamp;
+
+			stats.put(DanteDirectorConstant.ADAPTER_UPTIME_MIN, String.valueOf(adapterUptime / (1000 * 60)));
+			stats.put(DanteDirectorConstant.ADAPTER_UPTIME, normalizeUptime(adapterUptime / 1000));
+			try{
+				stats.put(DanteDirectorConstant.SYSTEM_MONITORING_CYCLE, String.valueOf(getMonitoringRate()));
+			}catch (NoSuchMethodError error){
+				logger.warn("Unsupported feature: getMonitoringRate isn't available on current Cloud Connector version.", error);
+			}
+			dynamicStatistics.put(DanteDirectorConstant.MONITORED_DEVICES_TOTAL, String.valueOf(currentSiteValue.get(DanteDirectorConstant.DEVICES).size()));
+		} catch (Exception e) {
+			logger.error("Failed to populate metadata information", e);
 		}
 	}
 
@@ -648,8 +707,6 @@ public class DanteDirectorCommunicator extends RestCommunicator implements Aggre
 			advancedControllableProperties.removeIf(item -> item.getName().equalsIgnoreCase(DanteDirectorConstant.SITE_NAME));
 			stats.put(DanteDirectorConstant.SITE_NAME + DanteDirectorConstant.SPACE, name);
 		}
-		//Number of devices
-		stats.put("NumberOfDevices", String.valueOf(currentSiteValue.get(DanteDirectorConstant.DEVICES).size()));
 	}
 
 	/**
@@ -868,6 +925,38 @@ public class DanteDirectorCommunicator extends RestCommunicator implements Aggre
 	 */
 	private String getDefaultValueForNullData(String value) {
 		return StringUtils.isNotNullOrEmpty(value) ? value : DanteDirectorConstant.NONE;
+	}
+
+	/**
+	 * Uptime is received in seconds, need to normalize it and make it human-readable, like
+	 * 1 day 5 hour 12 minute 55 minute
+	 * Incoming parameter is may have a decimal point, so in order to safely process this - it's rounded first.
+	 * We don't need to add a segment of time if it's 0.
+	 *
+	 * @param uptimeSeconds value in seconds
+	 * @return string value of format 'x d x hr x min x sec'
+	 */
+	public static String normalizeUptime(long uptimeSeconds) {
+		StringBuilder normalizedUptime = new StringBuilder();
+
+		long seconds = uptimeSeconds % 60;
+		long minutes = uptimeSeconds % 3600 / 60;
+		long hours = uptimeSeconds % 86400 / 3600;
+		long days = uptimeSeconds / 86400;
+
+		if (days > 0) {
+			normalizedUptime.append(days).append(" d ");
+		}
+		if (hours > 0) {
+			normalizedUptime.append(hours).append(" hr ");
+		}
+		if (minutes > 0) {
+			normalizedUptime.append(minutes).append(" min ");
+		}
+		if (seconds > 0 || normalizedUptime.length() == 0) {
+			normalizedUptime.append(seconds).append(" sec");
+		}
+		return normalizedUptime.toString().trim();
 	}
 
 	/**
