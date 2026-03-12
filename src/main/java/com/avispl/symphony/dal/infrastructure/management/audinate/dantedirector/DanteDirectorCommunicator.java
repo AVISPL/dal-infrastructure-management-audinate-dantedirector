@@ -173,7 +173,13 @@ public class DanteDirectorCommunicator extends RestCommunicator implements Aggre
 					logger.error("Error occurred during device list retrieval: " + e.getMessage(), e);
 				}
 
-				nextDevicesCollectionIterationTimestamp = System.currentTimeMillis() + (getMonitoringRate() * 60000L);
+				try{
+					nextDevicesCollectionIterationTimestamp = System.currentTimeMillis() + (getMonitoringRate() * 60000L);
+				} catch (NoSuchMethodError error){
+					nextDevicesCollectionIterationTimestamp = System.currentTimeMillis() + 60000L;
+					logger.warn("Unsupported feature: getMonitoringRate isn't available on current Cloud Connector version.", error);
+				}
+
 				lastMonitoringCycleDuration = Math.max((System.currentTimeMillis() - startCycle) / 1000, 1L);
 
 				if (logger.isDebugEnabled()) {
@@ -613,7 +619,11 @@ public class DanteDirectorCommunicator extends RestCommunicator implements Aggre
 
 			stats.put(DanteDirectorConstant.ADAPTER_UPTIME_MIN, String.valueOf(adapterUptime / (1000 * 60)));
 			stats.put(DanteDirectorConstant.ADAPTER_UPTIME, normalizeUptime(adapterUptime / 1000));
-			stats.put(DanteDirectorConstant.SYSTEM_MONITORING_CYCLE, String.valueOf(getMonitoringRate()));
+			try{
+				stats.put(DanteDirectorConstant.SYSTEM_MONITORING_CYCLE, String.valueOf(getMonitoringRate()));
+			}catch (NoSuchMethodError error){
+				logger.warn("Unsupported feature: getMonitoringRate isn't available on current Cloud Connector version.", error);
+			}
 			dynamicStatistics.put(DanteDirectorConstant.MONITORED_DEVICES_TOTAL, String.valueOf(currentSiteValue.get(DanteDirectorConstant.DEVICES).size()));
 		} catch (Exception e) {
 			logger.error("Failed to populate metadata information", e);
