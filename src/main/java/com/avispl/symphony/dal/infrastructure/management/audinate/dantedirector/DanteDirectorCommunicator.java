@@ -5,10 +5,6 @@
 package com.avispl.symphony.dal.infrastructure.management.audinate.dantedirector;
 
 import java.io.IOException;
-import java.net.ConnectException;
-import java.net.Socket;
-import java.net.SocketTimeoutException;
-import java.net.UnknownHostException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -28,6 +24,7 @@ import java.util.stream.Collectors;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.util.CollectionUtils;
+import org.springframework.web.client.ResourceAccessException;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -327,53 +324,6 @@ public class DanteDirectorCommunicator extends RestCommunicator implements Aggre
 
 	/**
 	 * {@inheritDoc}
-	 * <p>
-	 *
-	 * Check for available devices before retrieving the value
-	 * ping latency information to Symphony
-	 */
-	@Override
-	public int ping() throws Exception {
-		if (isInitialized()) {
-			long pingResultTotal = 0L;
-
-			for (int i = 0; i < this.getPingAttempts(); i++) {
-				long startTime = System.currentTimeMillis();
-
-				try (Socket puSocketConnection = new Socket(this.host, this.getPort())) {
-					puSocketConnection.setSoTimeout(this.getPingTimeout());
-					if (puSocketConnection.isConnected()) {
-						long pingResult = System.currentTimeMillis() - startTime;
-						pingResultTotal += pingResult;
-						if (this.logger.isTraceEnabled()) {
-							this.logger.trace(String.format("PING OK: Attempt #%s to connect to %s on port %s succeeded in %s ms", i + 1, host, this.getPort(), pingResult));
-						}
-					} else {
-						if (this.logger.isDebugEnabled()) {
-							logger.debug(String.format("PING DISCONNECTED: Connection to %s did not succeed within the timeout period of %sms", host, this.getPingTimeout()));
-						}
-						return this.getPingTimeout();
-					}
-				} catch (SocketTimeoutException | ConnectException tex) {
-					throw new SocketTimeoutException("Socket connection timed out");
-				} catch (UnknownHostException tex) {
-					throw new SocketTimeoutException("Socket connection timed out" + tex.getMessage());
-				} catch (Exception e) {
-					if (this.logger.isWarnEnabled()) {
-						this.logger.warn(String.format("PING TIMEOUT: Connection to %s did not succeed, UNKNOWN ERROR %s: ", host, e.getMessage()));
-					}
-					return this.getPingTimeout();
-				}
-			}
-			return Math.max(1, Math.toIntExact(pingResultTotal / this.getPingAttempts()));
-		} else {
-			throw new IllegalStateException("Cannot use device class without calling init() first");
-		}
-
-	}
-
-	/**
-	 * {@inheritDoc}
 	 */
 	@Override
 	public List<Statistics> getMultipleStatistics() throws Exception {
@@ -571,7 +521,7 @@ public class DanteDirectorCommunicator extends RestCommunicator implements Aggre
 	private void sendCommandToControlDevice(String deviceId, String value, AggregatedControllableProperty property) {
 		try {
 			String command = String.format(DanteDirectorQuery.CONTROL_CLOCK_SYNC, property.getCommandParam(), property.getCommandName(), deviceId, value);
-			JsonNode response = this.doPost(DanteDirectorConstant.URL, command, JsonNode.class);
+			JsonNode response = this.doPost(command);
 			if (response.has(DanteDirectorConstant.ERRORS)) {
 				throw new IllegalArgumentException("The command response is error");
 			}
@@ -593,7 +543,7 @@ public class DanteDirectorCommunicator extends RestCommunicator implements Aggre
 	private void sendCommandToControlTheSiteName(String deviceId, String domainId, String siteName) {
 		try {
 			String command = String.format(DanteDirectorQuery.CONTROL_SITE, deviceId, domainId);
-			JsonNode response = this.doPost(DanteDirectorConstant.URL, command, JsonNode.class);
+			JsonNode response = this.doPost(command);
 			if (response.has(DanteDirectorConstant.ERRORS)) {
 				throw new IllegalArgumentException("The command response is error");
 			}
@@ -624,7 +574,7 @@ public class DanteDirectorCommunicator extends RestCommunicator implements Aggre
 			}catch (NoSuchMethodError error){
 				logger.warn("Unsupported feature: getMonitoringRate isn't available on current Cloud Connector version.", error);
 			}
-			dynamicStatistics.put(DanteDirectorConstant.MONITORED_DEVICES_TOTAL, String.valueOf(currentSiteValue.get(DanteDirectorConstant.DEVICES).size()));
+			dynamicStatistics.put(DanteDirectorConstant.MONITORED_DEVICES_TOTAL, String.valueOf(this.cachedData.size()));
 		} catch (Exception e) {
 			logger.error("Failed to populate metadata information", e);
 		}
@@ -638,7 +588,7 @@ public class DanteDirectorCommunicator extends RestCommunicator implements Aggre
 	 * @throws ResourceNotReachableException If there is an error retrieving system information or the number of sites is 0.
 	 */
 	private void retrieveSystemInfo() throws Exception {
-		JsonNode response = this.doPost(DanteDirectorConstant.URL, DanteDirectorQuery.SYSTEM_INFO, JsonNode.class);
+		JsonNode response = this.doPost(DanteDirectorQuery.SYSTEM_INFO);
 
 		if (response.has(DanteDirectorConstant.ERRORS) && checkUnauthenticated(response.get(DanteDirectorConstant.ERRORS))) {
 			throw new FailedLoginException("Error while login. Please check the credentials");
@@ -716,7 +666,7 @@ public class DanteDirectorCommunicator extends RestCommunicator implements Aggre
 	 */
 	private void populateDeviceDetails() {
 		try {
-			JsonNode response = this.doPost(DanteDirectorConstant.URL, DanteDirectorQuery.DEVICES_INFO, JsonNode.class);
+			JsonNode response = this.doPost(DanteDirectorQuery.DEVICES_INFO);
 			if (response.has(DanteDirectorConstant.DATA) && response.get(DanteDirectorConstant.DATA).has(DanteDirectorConstant.DOMAINS)) {
 				cachedData.clear();
 				for (JsonNode domainNode : response.get(DanteDirectorConstant.DATA).get(DanteDirectorConstant.DOMAINS)) {
@@ -1019,5 +969,41 @@ public class DanteDirectorCommunicator extends RestCommunicator implements Aggre
 			}
 			advancedControllableProperties.add(property);
 		}
+	}
+
+	/**
+	 * Sends a POST request to the Dante Director API with retry mechanism.
+	 *
+	 * <p>This method attempts to call the API up to a maximum number of retries
+	 * when a {@link ResourceAccessException} occurs (e.g., connection timeout).
+	 * Between retries, it waits for 500 milliseconds and attempts to reconnect
+	 * by calling {@code disconnect()}.</p>
+	 * <p>If all retry attempts fail, a {@link RuntimeException} is thrown.</p>
+	 *
+	 * @param data the request payload to be sent in the POST body
+	 * @return the response body as a {@link JsonNode}
+	 * @throws RuntimeException if the request fails after all retry attempts
+	 */
+	private JsonNode doPost(String data) throws Exception {
+		int maxRetry = 3;
+		for (int i = 1; i <= maxRetry; i++) {
+			try {
+				return super.doPost(DanteDirectorConstant.URL, data, JsonNode.class);
+			} catch (ResourceNotReachableException e) {
+				this.logger.error(String.format("API call failed at attempt %s - data %s", i, data), e);
+				if (i == maxRetry) {
+					throw new RuntimeException(e);
+				}
+				this.disconnect();
+				this.logger.debug("Retrying send API after 0.5s...");
+				try {
+					Thread.sleep(500);
+				} catch (InterruptedException ex) {
+					Thread.currentThread().interrupt();
+					throw new RuntimeException(ex);
+				}
+			}
+		}
+		throw new RuntimeException("Failed to request to " + DanteDirectorConstant.URL);
 	}
 }
