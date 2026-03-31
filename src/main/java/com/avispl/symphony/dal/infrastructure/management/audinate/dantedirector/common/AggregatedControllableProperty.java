@@ -71,7 +71,7 @@ public enum AggregatedControllableProperty {
 	 * @return The AggregatedControllableProperty with the specified default name, or null if not found.
 	 */
 	public static AggregatedControllableProperty getByDefaultName(String name) {
-		Optional<AggregatedControllableProperty> property = Arrays.stream(AggregatedControllableProperty.values()).filter(item -> item.getName().equalsIgnoreCase(name)).findFirst();
+		Optional<AggregatedControllableProperty> property = Arrays.stream(values()).filter(item -> item.getName().equalsIgnoreCase(name)).findFirst();
 		return property.orElse(null);
 	}
 }

@@ -84,7 +84,7 @@ public enum AggregatedInformation {
 	 * @return The AggregatedInformation with the specified default name, or null if not found.
 	 */
 	public static AggregatedInformation getByDefaultName(String name) {
-		Optional<AggregatedInformation> property = Arrays.stream(AggregatedInformation.values()).filter(item -> item.getName().equalsIgnoreCase(name)).findFirst();
+		Optional<AggregatedInformation> property = Arrays.stream(values()).filter(item -> item.getName().equalsIgnoreCase(name)).findFirst();
 		return property.orElse(null);
 	}
 }
